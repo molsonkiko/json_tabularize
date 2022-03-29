@@ -1,4 +1,4 @@
-from tabularize import *
+from json_tabularize.tabularize import *
 import unittest
 
 baseball2 = [

@@ -19,9 +19,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 ### To Be Fixed
 
 
-## [1.0.0] - 2022-03-29
+## [1.0.3] - 2022-03-29
 
-json_tabularize version 1.0.0 is now available on the Python package index.
+json_tabularize version 1.0.3 is now available on the Python package index.
 It has been tested for Python 3.6 to 3.10.
 
 ### Added

@@ -1,0 +1,14 @@
+LICENSE
+MANIFEST.in
+README.md
+pyproject.toml
+setup.py
+json_tabularize.egg-info/PKG-INFO
+json_tabularize.egg-info/SOURCES.txt
+json_tabularize.egg-info/dependency_links.txt
+json_tabularize.egg-info/requires.txt
+json_tabularize.egg-info/top_level.txt
+src/__init__.py
+src/__main__.py
+src/tabularize.py
+src/test.py
