@@ -1,0 +1,45 @@
+==========
+command line
+==========
+
+json_tabularize is most conveniently used from the command line. You can run the package directly like so::
+```{sh}
+    C:/Users/mjols/Python39> python -m json_tabularize counties.json	
+[
+    {
+        "state": "Florida",
+        "shortname": "FL",
+        "info.governor": "Rick Scott",
+        "counties.name": "Dade",
+        "counties.population": 12345
+    },
+    {
+        "state": "Florida",
+        "shortname": "FL",
+        "info.governor": "Rick Scott",
+        "counties.name": "Broward",
+        "counties.population": 40000
+    },
+    {
+        "state": "Florida",
+        "shortname": "FL",
+        "info.governor": "Rick Scott",
+        "counties.name": "Palm Beach",
+        "counties.population": 60000
+    },
+    {
+        "state": "Ohio",
+        "shortname": "OH",
+        "info.governor": "John Kasich",
+        "counties.name": "Summit",
+        "counties.population": 1234
+    },
+    {
+        "state": "Ohio",
+        "shortname": "OH",
+        "info.governor": "John Kasich",
+        "counties.name": "Cuyahoga",
+        "counties.population": 1337
+    }
+]
+```
