@@ -1,9 +1,16 @@
 from genson import SchemaBuilder
 from math import inf
-# see https://json-schema.org/learn/miscellaneous-examples.html
-# see also https://python-jsonschema.readthedocs.io/en/stable/
-# can use genson (https://github.com/wolverdude/GenSON) to create JSON schema
-# as well
+import sys
+from copy import deepcopy
+
+if sys.version_info.major < 3:
+    raise Exception("Only Python 3 is supported")
+if sys.version_info.minor < 7:
+    from collections import OrderedDict
+else:
+    OrderedDict = dict
+
+NoneType = type(None)
 
 BASE_SCHEMA = {
   # "$id": "https://example.com/arrays.schema.json",
@@ -13,8 +20,116 @@ BASE_SCHEMA = {
   # schema. Currently the latest is 2020-12.
 }
 
+TYPE_NAMES = {
+    bool: 'boolean',
+    bytearray: 'string',
+    bytes: 'string',
+    dict: 'object',
+    float: 'number',
+    int: 'integer',
+    list: 'array',
+    NoneType: 'null',
+    str: 'string',
+    tuple: 'array',
+}
 
 SCALAR_TYPES = {'string', 'number', 'boolean', 'integer', 'null'}
+
+
+def _schema_template(obj):
+    '''Get the type name in JSON schema for an object  obj, and also the
+    basic template for making its JSON schema'''
+    tipe = TYPE_NAMES[type(obj)]
+    if tipe in SCALAR_TYPES:
+        return tipe, {'type': tipe}
+    
+    if tipe == 'array':
+        return 'array', {'type': 'array', 'items': {'type': None}}
+        
+    if tipe == 'object':
+        return 'object', {'type': 'object', 'properties': OrderedDict()}
+
+
+def _merge_schemas(scalar_types, composite_types):
+    if not composite_types:
+        if not scalar_types:
+            return
+        if len(scalar_types) == 1:
+            return {'type': scalar_types[0]}
+        return {'type': scalar_types}
+    if scalar_types:
+        merged_types = deepcopy(scalar_types)
+        merged_types.extend(composite_types)
+        return {'anyOf': merged_types}
+    if len(composite_types) == 1:
+        return composite_types[0]
+    return {'anyOf': composite_types}
+
+
+def _make_schema(obj):
+    '''This is a deliberately narrow and primitive JSON schema generator.
+It is not compliant with the JSON schema specification, and never will be.
+For instance, it does not have a "required" attribute in the schema of objects.
+The sole purpose is to quickly create a schema that lets classify_schema
+    determine whether the object obj is tabular or not.
+    '''
+    def build(obj):
+        tipe, schema = _schema_template(obj)
+        # print(f'{obj = }\n{tipe = }\n{schema = }')
+        composite_types = []
+        scalar_types = []
+        if tipe == 'array':
+            past_schemas = set()
+            for elt in obj:
+                # print(f'{elt = }')
+                subschema = build(elt)
+                str_subschema = str(subschema)
+                if str_subschema in past_schemas:
+                    continue
+                past_schemas.add(str_subschema)
+                subtipe = subschema['type']
+                # there are three reasons 'type' could be in the items:
+                # 1. Nothing has been added yet
+                # 2. only scalars have been added so far
+                # 3. Exactly one distinct array/object schema has been added
+                if subtipe in SCALAR_TYPES:
+                    scalar_types.append(subtipe)
+                else:
+                    composite_types.append(subschema)
+            # we need to sort the schema to ensure that two arrays that
+            # contain all the same types but in different orders are treated
+            # the same.
+            types = _merge_schemas(scalar_types, composite_types)
+            if types:
+                schema['items'] = types
+            items = schema['items']
+            if 'type' not in items:
+                items['anyOf'] = sorted(items['anyOf'], key=str)
+            elif isinstance(items['type'], list):
+                items['type'] = sorted(items['type'], key=str)
+        elif tipe == 'object':
+            props = schema['properties']
+            past_schemas = set()
+            for k, v in obj.items():
+                subschema = build(v)
+                subtipe = subschema['type']
+                v_types = props.setdefault(k, {'type': None})
+                str_subschema = str(subschema)
+                if str_subschema in past_schemas:
+                    continue
+                past_schemas.add(str_subschema)
+                _add_schema_to_items(v_types, subtipe, subschema)
+                if 'type' not in v_types:
+                    v_types['anyOf'] = sorted(v_types['anyOf'], key=str)
+                elif isinstance(v_types['type'], list):
+                    v_types['type'] = sorted(v_types['type'], key=str)
+            props = OrderedDict(sorted(props.items(), key=str))
+        
+        return schema
+    
+    schema = {k: v for k, v in BASE_SCHEMA.items()}
+    schema.update(build(obj))
+    return schema
 
 
 def get_schema(obj):
@@ -83,8 +198,8 @@ def classify_schema(schema):
         # it's an array containing only objects
         subdict_types = [prop.get('type') for prop in schema['items']['properties'].values()]
         cls = 'rec'
-        for type_ in subdict_types:
-            if not (isinstance(type_, list) or type_ in SCALAR_TYPES):
+        for tipe in subdict_types:
+            if not (isinstance(tipe, list) or tipe in SCALAR_TYPES):
                 # it's a dict containing some non-scalar values; toss it.
                 return 'bad'
         # an array of objects with only scalar values is 'records' or 'rec'
@@ -94,21 +209,21 @@ def classify_schema(schema):
     # and isn't bad somehow, we conclude that it's a tab.
     cls = 'row'
     for prop in schema['properties'].values():
-        type_ = prop.get('type')
-        if type_ is None:
+        tipe = prop.get('type')
+        if tipe is None:
             # we won't try to tabularize objects that have a mixture of
             # non-scalar types
             return 'bad'
-        elif type_ == 'object':
+        elif tipe == 'object':
             # we will tolerate objects hanging off of our object, so long as
             # those objects contain only scalars (i.e., are 'rows').
             # Such objects can essentially be decomposed into more key-value
             # pairs in the parent object.
             subobj_types = [subprop.get('type') for subprop in prop['properties'].values()]
-            if not all(isinstance(type_, list) or type_ in SCALAR_TYPES for type_ in subobj_types):
+            if not all(isinstance(tipe, list) or tipe in SCALAR_TYPES for tipe in subobj_types):
                 return 'bad'
             continue
-        elif type_ != 'array':
+        elif tipe != 'array':
             # it is OK for a table to have some scalar value
             # and some list values.
             # the scalars are just copy-pasted into the row for each
@@ -139,8 +254,8 @@ def find_tabs_in_schema(schema):
             tab_paths[path] = cls
             return
         # by process of elimination, it's bad, so maybe it contains tables
-        type_ = schema['type']
-        if type_ == 'array':
+        tipe = schema['type']
+        if tipe == 'array':
             items_ = schema['items']
             if 'anyOf' in items_:
                 for subschema in items_['anyOf']:
@@ -287,5 +402,5 @@ from child keys in the column names of the output.
     out = []
     path, cls = list(tab_paths.items())[0]
     build(obj, cls, 0, path, out, key_sep=key_sep)
-    
+
     return out
