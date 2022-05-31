@@ -2,6 +2,7 @@ from genson import SchemaBuilder
 from math import inf
 import sys
 from copy import deepcopy
+import ast
 
 if sys.version_info.major < 3:
     raise Exception("Only Python 3 is supported")
@@ -42,9 +43,9 @@ def merge_schemas(s1, s2):
     if isinstance(s1type, bool):
         if isinstance(s2type, bool):
             return {'anyOf': [*s1['anyOf'], *s2['anyOf']]}
-        return {'anyOf': [*s1['anyOf'], s2type]}
+        return {'anyOf': [*s1['anyOf'], {'type': s2type}]}
     if isinstance(s2type, bool):
-        return {'anyOf': [s1type, *s2['anyOf']]}
+        return {'anyOf': [{'type': s1type}, *s2['anyOf']]}
     if len(s1) == 1:
         if s1type is None:
             return s2
@@ -65,19 +66,19 @@ def merge_schemas(s1, s2):
             if len(newtypes) == 1:
                 return {'type': list(newtypes)[0]}
             return {'type': list(newtypes)}
-        # if isinstance(s1type, list):
-            # # s2 is iterable type and s1type is array of scalars
-            # return {'anyOf': [*s1type, s2]}
+        if isinstance(s1type, list):
+            # s2 is iterable type and s1type is array of scalars
+            return {'anyOf': [{'type': t} for t in s1type] + [s2]}
         # s2 is iterable type and s1 is scalar
-        return {'anyOf': [s1, s2]}
+        return {'anyOf': [{'type': s1type}] + [s2]}
     if len(s2) == 1:
         if s2type is None:
             return s1
-        # if isinstance(s2type, list):
-            # # s1 is an iterable type and s2type is an array of scalars
-            # return {'anyOf': [*s2type, s1]}
+        if isinstance(s2type, list):
+            # s1 is an iterable type and s2type is an array of scalars
+            return {'anyOf': [{'type': t} for t in s2type] + [s1]}
         # s1 is iterable type and s2type is a scalar
-        return {'anyOf': [s1, s2]}
+        return {'anyOf': [{'type': s2type}] + [s1]}
     # both are iterables
     if s1type == 'array' and s2type == 'array':
         combined_items = merge_schemas(s1['items'], s2['items'])
@@ -117,21 +118,32 @@ def get_schema(obj):
             schema = {'type': tipe}
         # print(f'{obj = }\n{tipe = }\n{schema = }')
         if tipe == 'array':
+            simple_schemas = set()
             for elt in obj:
                 subschema = build(elt)
                 # print(f'elt = {elt}, subschema = {subschema}')
-                schema['items'] = merge_schemas(schema['items'], subschema)
+                if len(subschema) == 1 and 'type' in subschema:
+                    simple_schemas.add(subschema['type'])
+                else:
+                    schema['items'] = merge_schemas(schema['items'], subschema)
+            if len(simple_schemas) == 0:
+                pass
+            elif len(simple_schemas) == 1:
+                schema['items'] = merge_schemas({'type': list(simple_schemas)[0]}, schema['items'])
+            else:
+                schema['items'] = merge_schemas({'type': list(simple_schemas)}, schema['items'])
             items = schema['items']
             if 'type' not in items:
                 items['anyOf'] = sorted(items['anyOf'], key=str)
             elif isinstance(items['type'], list):
                 items['type'] = sorted(items['type'], key=str)
+            # print(f'{simple_schemas = }')
         elif tipe == 'object':
             props = schema['properties']
             for k, v in obj.items():
                 props[k] = build(v)
             props = OrderedDict(sorted(props.items(), key=str))
-        # print(f'{obj = }, {scalar_types = }, {composite_types = }, {schema = }')
+        # print(f'{obj = }, {schema = }')
         return schema
     
     schema = {k: v for k, v in BASE_SCHEMA.items()}
