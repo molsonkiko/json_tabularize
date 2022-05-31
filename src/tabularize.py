@@ -36,34 +36,68 @@ TYPE_NAMES = {
 SCALAR_TYPES = {'string', 'number', 'boolean', 'integer', 'null'}
 
 
-def _schema_template(obj):
-    '''Get the type name in JSON schema for an object  obj, and also the
-    basic template for making its JSON schema'''
-    tipe = TYPE_NAMES[type(obj)]
-    if tipe in SCALAR_TYPES:
-        return tipe, {'type': tipe}
-    
-    if tipe == 'array':
-        return 'array', {'type': 'array', 'items': {'type': None}}
-        
-    if tipe == 'object':
-        return 'object', {'type': 'object', 'properties': OrderedDict()}
-
-
-def _merge_schemas(scalar_types, composite_types):
-    if not composite_types:
-        if not scalar_types:
-            return
-        if len(scalar_types) == 1:
-            return {'type': scalar_types[0]}
-        return {'type': scalar_types}
-    if scalar_types:
-        merged_types = deepcopy(scalar_types)
-        merged_types.extend(composite_types)
-        return {'anyOf': merged_types}
-    if len(composite_types) == 1:
-        return composite_types[0]
-    return {'anyOf': composite_types}
+def merge_schemas(s1, s2):
+    # print(f's1 = {s1}, s2 = {s2}')
+    s1type, s2type = s1.get('type', False), s2.get('type', False)
+    if isinstance(s1type, bool):
+        if isinstance(s2type, bool):
+            return {'anyOf': [*s1['anyOf'], *s2['anyOf']]}
+        return {'anyOf': [*s1['anyOf'], s2type]}
+    if isinstance(s2type, bool):
+        return {'anyOf': [s1type, *s2['anyOf']]}
+    if len(s1) == 1:
+        if s1type is None:
+            return s2
+        if len(s2) == 1:
+            # two scalars, or an array of scalars and a scalar,
+            # or two arrays of scalars
+            newtypes = set()
+            if s1type is not None:
+                if isinstance(s1type, list):
+                    newtypes.update(s1type)
+                else:
+                    newtypes.add(s1type)
+            if s2type is not None:
+                if isinstance(s2type, list):
+                    newtypes.update(s2type)
+                else:
+                    newtypes.add(s2type)
+            return {'type': list(newtypes)}
+        # if isinstance(s1type, list):
+            # # s2 is iterable type and s1type is array of scalars
+            # return {'anyOf': [*s1type, s2]}
+        # s2 is iterable type and s1 is scalar
+        return {'anyOf': [s1, s2]}
+    if len(s2) == 1:
+        if s2type is None:
+            return s1
+        # if isinstance(s2type, list):
+            # # s1 is an iterable type and s2type is an array of scalars
+            # return {'anyOf': [*s2type, s1]}
+        # s1 is iterable type and s2type is a scalar
+        return {'anyOf': [s1, s2]}
+    # both are iterables
+    if s1type == 'array' and s2type == 'array':
+        combined_items = _merge_schemas(s1['items'], s2['items'])
+        return {'type': 'array', 'items': combined_items}
+    if s1type == 'object' and s2type == 'object':
+        combined_props = {}
+        out = {'type': 'object', 'properties': OrderedDict()}
+        s1props = s1['properties']
+        s2props = s2['properties']
+        s1keys = s1.get('required', set()) or set(s1)
+        s2keys = s2.get('required', set()) or set(s2)
+        shared_keys = s1keys & s2keys
+        out['required'] = shared_keys
+        for k in shared_keys:
+            merged_val_schema = _merge_schemas(s1props[k], s2props[k])
+            out['properties'][k] = merged_val_schema
+        for k in s1keys - shared_keys:
+            out['properties'][k] = s1props[k]
+        for k in s2keys - shared_keys:
+            out['properties'][k] = s2props[k]
+        return out
+    return {'anyOf': [s1, s2]}
 
 
 def _make_schema(obj):
@@ -76,32 +110,11 @@ The sole purpose is to quickly create a schema that lets classify_schema
     def build(obj):
         tipe, schema = _schema_template(obj)
         # print(f'{obj = }\n{tipe = }\n{schema = }')
-        composite_types = []
-        scalar_types = []
         if tipe == 'array':
-            past_schemas = set()
             for elt in obj:
-                # print(f'{elt = }')
                 subschema = build(elt)
-                str_subschema = str(subschema)
-                if str_subschema in past_schemas:
-                    continue
-                past_schemas.add(str_subschema)
-                subtipe = subschema['type']
-                # there are three reasons 'type' could be in the items:
-                # 1. Nothing has been added yet
-                # 2. only scalars have been added so far
-                # 3. Exactly one distinct array/object schema has been added
-                if subtipe in SCALAR_TYPES:
-                    scalar_types.append(subtipe)
-                else:
-                    composite_types.append(subschema)
-            # we need to sort the schema to ensure that two arrays that
-            # contain all the same types but in different orders are treated
-            # the same.
-            types = _merge_schemas(scalar_types, composite_types)
-            if types:
-                schema['items'] = types
+                # print(f'elt = {elt}, subschema = {subschema}')
+                schema['items'] = _merge_schemas(schema['items'], subschema)
             items = schema['items']
             if 'type' not in items:
                 items['anyOf'] = sorted(items['anyOf'], key=str)
@@ -109,22 +122,11 @@ The sole purpose is to quickly create a schema that lets classify_schema
                 items['type'] = sorted(items['type'], key=str)
         elif tipe == 'object':
             props = schema['properties']
-            past_schemas = set()
             for k, v in obj.items():
-                subschema = build(v)
-                subtipe = subschema['type']
-                v_types = props.setdefault(k, {'type': None})
-                str_subschema = str(subschema)
-                if str_subschema in past_schemas:
-                    continue
-                past_schemas.add(str_subschema)
-                _add_schema_to_items(v_types, subtipe, subschema)
-                if 'type' not in v_types:
-                    v_types['anyOf'] = sorted(v_types['anyOf'], key=str)
-                elif isinstance(v_types['type'], list):
-                    v_types['type'] = sorted(v_types['type'], key=str)
+                props[k] = build(v)
             props = OrderedDict(sorted(props.items(), key=str))
-        
+            schema['required'] = schema.get('required', set(obj))
+        # print(f'{obj = }, {scalar_types = }, {composite_types = }, {schema = }')
         return schema
     
     schema = {k: v for k, v in BASE_SCHEMA.items()}
@@ -393,7 +395,7 @@ from child keys in the column names of the output.
                             cur_row[k] = v
                 build(obj[new_key], cls, depth+1, tab_path, out, cur_row, cur_key + [new_key], key_sep)
 
-    schema = get_schema(obj)
+    schema = _make_schema(obj)
     tab_paths = find_tabs_in_schema(schema)
     if not tab_paths:
         return []

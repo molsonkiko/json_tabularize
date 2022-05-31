@@ -19,6 +19,12 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 ### To Be Fixed
 
 
+## [1.0.4] - 2022-05-30
+
+
+### Changes
+My own schema generator is now online! I have not thoroughly stress-tested this, and it is slower than GenSON's, so for now the GenSON dependency stays. This has not been released on PyPI. 
+
 ## [1.0.3] - 2022-03-29
 
 json_tabularize version 1.0.3 is now available on the Python package index.
