@@ -1,4 +1,4 @@
-from json_tabularize.tabularize import *
+from tabularize import *
 import unittest
 
 baseball2 = [
@@ -502,6 +502,19 @@ class BuildSchemaTests(unittest.TestCase):
                 'a.rows.col2': 2, 
                 'a.rows.col3': 'a'
             },
+        ]
+        self.assertEqual(correct_out, build_tab(obj))
+        
+    def test_build_tab_rec_multi_types(self):
+        obj = [
+            {'a': 1, 'b': 'a'},
+            {'a': '2', 'b': 'b'},
+            {'a': 3., 'b': 'c'},
+        ]
+        correct_out = [
+            {'a': 1, 'b': 'a'},
+            {'a': '2', 'b': 'b'},
+            {'a': 3., 'b': 'c'},
         ]
         self.assertEqual(correct_out, build_tab(obj))
 

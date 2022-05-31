@@ -5,6 +5,6 @@ Every algorithm I've seen for making JSON into a table can't fully normalize ver
 '''
 __version__ = '1.0.3'
 
-from json_tabularize.tabularize import SchemaBuilder, get_schema, build_tab
+from tabularize import SchemaBuilder, get_schema, build_tab
 
 __all__ = ['SchemaBuilder', 'get_schema', 'build_tab', 'test']

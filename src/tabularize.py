@@ -62,6 +62,8 @@ def merge_schemas(s1, s2):
                     newtypes.update(s2type)
                 else:
                     newtypes.add(s2type)
+            if len(newtypes) == 1:
+                return {'type': list(newtypes)[0]}
             return {'type': list(newtypes)}
         # if isinstance(s1type, list):
             # # s2 is iterable type and s1type is array of scalars
@@ -78,43 +80,47 @@ def merge_schemas(s1, s2):
         return {'anyOf': [s1, s2]}
     # both are iterables
     if s1type == 'array' and s2type == 'array':
-        combined_items = _merge_schemas(s1['items'], s2['items'])
+        combined_items = merge_schemas(s1['items'], s2['items'])
         return {'type': 'array', 'items': combined_items}
     if s1type == 'object' and s2type == 'object':
         combined_props = {}
         out = {'type': 'object', 'properties': OrderedDict()}
         s1props = s1['properties']
         s2props = s2['properties']
-        s1keys = s1.get('required', set()) or set(s1)
-        s2keys = s2.get('required', set()) or set(s2)
+        s1keys = s1.get('required', set(s1props))
+        s2keys = s2.get('required', set(s2props))
         shared_keys = s1keys & s2keys
         out['required'] = shared_keys
         for k in shared_keys:
-            merged_val_schema = _merge_schemas(s1props[k], s2props[k])
+            merged_val_schema = merge_schemas(s1props[k], s2props[k])
             out['properties'][k] = merged_val_schema
-        for k in s1keys - shared_keys:
+        for k in set(s1props) - shared_keys:
             out['properties'][k] = s1props[k]
-        for k in s2keys - shared_keys:
+        for k in set(s2props) - shared_keys:
             out['properties'][k] = s2props[k]
         return out
     return {'anyOf': [s1, s2]}
 
 
-def _make_schema(obj):
-    '''This is a deliberately narrow and primitive JSON schema generator.
-It is not compliant with the JSON schema specification, and never will be.
-For instance, it does not have a "required" attribute in the schema of objects.
-The sole purpose is to quickly create a schema that lets classify_schema
-    determine whether the object obj is tabular or not.
+def get_schema(obj):
+    '''My own JSON schema generator. May not be fully compliant with JSON
+    schema specifications. Based on the GenSON algorithm
     '''
     def build(obj):
-        tipe, schema = _schema_template(obj)
+        tipe = TYPE_NAMES[type(obj)]
+        schema = None
+        if tipe == 'array':
+            schema = {'type': 'array', 'items': {'type': None}}
+        elif tipe == 'object':
+            schema = {'type': 'object', 'properties': OrderedDict()} # , 'required': set(obj)}
+        else:
+            schema = {'type': tipe}
         # print(f'{obj = }\n{tipe = }\n{schema = }')
         if tipe == 'array':
             for elt in obj:
                 subschema = build(elt)
                 # print(f'elt = {elt}, subschema = {subschema}')
-                schema['items'] = _merge_schemas(schema['items'], subschema)
+                schema['items'] = merge_schemas(schema['items'], subschema)
             items = schema['items']
             if 'type' not in items:
                 items['anyOf'] = sorted(items['anyOf'], key=str)
@@ -125,7 +131,6 @@ The sole purpose is to quickly create a schema that lets classify_schema
             for k, v in obj.items():
                 props[k] = build(v)
             props = OrderedDict(sorted(props.items(), key=str))
-            schema['required'] = schema.get('required', set(obj))
         # print(f'{obj = }, {scalar_types = }, {composite_types = }, {schema = }')
         return schema
     
@@ -134,7 +139,7 @@ The sole purpose is to quickly create a schema that lets classify_schema
     return schema
 
 
-def get_schema(obj):
+def get_genson_schema(obj):
     builder = SchemaBuilder()
     builder.add_object(obj)
     return builder.to_schema()
@@ -395,7 +400,7 @@ from child keys in the column names of the output.
                             cur_row[k] = v
                 build(obj[new_key], cls, depth+1, tab_path, out, cur_row, cur_key + [new_key], key_sep)
 
-    schema = _make_schema(obj)
+    schema = get_schema(obj)
     tab_paths = find_tabs_in_schema(schema)
     if not tab_paths:
         return []
