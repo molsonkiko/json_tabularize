@@ -55,7 +55,49 @@ class BuildSchemaTests(unittest.TestCase):
         builder.to_schema()
         {'$schema': 'http://json-schema.org/schema#', 'type': 'object', 'properties': {'foo': {'type': 'integer'}, 'bar': {'type': 'array', 'items': {'type': 'integer'}}, 'baz': {'type': 'string'}}, 'required': ['foo']}
         # note that it's better practice to use https://json-schema.org/draft/<latest release date>/schema as the '$schema' value
-
+    
+    def test_get_schema_list_one_type_scal(self):
+        self.assertEqual(get_schema([1,2])['items'], {'type': 'integer'})
+        
+    def test_get_schema_list_multi_type_scal(self):
+        self.assertEqual(get_schema([1, '2'])['items'], {'type': ['integer', 'string']})
+        
+    def test_get_schema_dict_required(self):
+        self.assertEqual(get_schema({'a': 1, 'b': '2'}), {**BASE_SCHEMA, 'type': 'object', 'properties': {'a': {'type': 'integer'}, 'b': {'type': 'string'}}, 'required': {'a', 'b'}})
+        
+    def test_get_schema_nest_dict_required(self):
+        self.assertEqual(get_schema([{'a': 1}, {'a': 2, 'b': 3}])['items'], {'type': 'object', 'properties': {'a': {'type': 'integer'}, 'b': {'type': 'integer'}}, 'required': {'a'}})
+        
+    def test_get_schema_deep_nest_dict(self):
+        nesty = [
+                    {'a': 3}, 
+                    {'a': 1, 'b': [
+                            {'a': {'b': 1, 'c': 2}}, 
+                            {'a': {'b': 1}}
+                        ]
+                    }, 
+                    {'a': 1, 'b': [
+                            {'a': {'b': 1, 'c': 2, 'd': 3}}
+                        ]
+                    }, 
+                    {'a': 2, 'c': 3}
+                 ]
+        correct_out = {'$schema': 'http://json-schema.org/schema#',
+ 'type': 'array',
+ 'items': {'type': 'object',
+  'properties': {'a': {'type': 'integer'},
+   'b': {'type': 'array',
+    'items': {'type': 'object',
+     'properties': {'a': {'type': 'object',
+       'properties': {'b': {'type': 'integer'},
+        'c': {'type': 'integer'},
+        'd': {'type': 'integer'}},
+       'required': {'b'}}},
+     'required': {'a'}}},
+   'c': {'type': 'integer'}},
+  'required': {'a'}}}
+        self.assertEqual(get_schema(nesty), correct_out)
+    
     def test_classify_schema_scal(self):
         for scal in [1, 2., '3', None, True]:
             with self.subTest(scal=scal):

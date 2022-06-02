@@ -142,6 +142,7 @@ def get_schema(obj):
             props = schema['properties']
             for k, v in obj.items():
                 props[k] = build(v)
+            schema.setdefault('required', set(obj))
             props = OrderedDict(sorted(props.items(), key=str))
         # print(f'{obj = }, {schema = }')
         return schema
